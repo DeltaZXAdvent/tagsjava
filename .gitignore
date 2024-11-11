@@ -1,0 +1,11 @@
+packages.list
+api-packages-dotted.list
+api-packages.list
+api-packages-paths-for-scheme.list
+non-api-packages.list
+classes.list
+classfiles.list
+JavacParser.java
+Main.class
+openjdk21-src
+tagsjava.jar
