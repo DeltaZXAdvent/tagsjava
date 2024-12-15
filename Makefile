@@ -54,6 +54,8 @@ delete-api-packges-once:
 	rm -IR `cat api-packages.list | grep -F -v -f non-api-packages.list api-packages.list`
 delete-api-classes:
 	echo TODO
+all-non-api-packages.list:
+	echo TODO
 # Maybe jdeps is enough (no?)
 non-api-packages.list: api-packages.list
 	cat classes.list | awk '								\

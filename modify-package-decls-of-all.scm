@@ -8,6 +8,7 @@
 	     (ice-9 textual-ports)
 	     (ice-9 binary-ports)
 	     (srfi srfi-1)
+	     (srfi srfi-9)
 	     ((rnrs base) :version (6)))
 
 (define (debug str) (display (string-append str "\n")))
@@ -110,8 +111,57 @@
 							    ";"
 							    'post)
 					 (match:substring match-struct 0))))
+			       ((string-match
+				 (string-append "([[:lower:]][[:alnum:]_\\$]*(\\.[[:lower:]][[:alnum:]_\\$]*)*)\\."
+						"([[:upper:]][[:alnum:]_\\$]*\\.)*"
+						"([[:alpha:]][[:alnum:]_\\$]*\\.)*"
+						"([[:alpha:]][[:alnum:]_\\$]*|\\*) ?$") line)
+				=> (lambda (match-struct)
+				     (debug "Probable BUG!")
+				     (debug (string-append file " line: " line))
+				     (if (and (not (member
+						    ((lambda (x)
+						       (regexp-substitute/global #f " " x 'pre 'post))
+						     (match:substring match-struct 1))
+						    packages-dotted))
+					      (not (string-match "^com.deltazx.wrapper"
+								 (match:substring match-struct 1))))
+					 (regexp-substitute #f match-struct
+							    'pre
+							    "package "
+							    wrapper-package-path
+							    1
+							    ";"
+							    'post)
+					 (match:substring match-struct 0))))
 			       (#t line)))
 		       (file-get-lines file))))
+;; (define (file-translate-lines file proc-string-to-string)
+;;   )
+
+;; (define-record-type <token>
+;;   (make-token kind value)
+;;   token?
+;;   (kind token-kind)
+;;   (value token-value))
+
+;; Reasons not to use regex:
+;; - Lack of regex builder (only with string concatenation)
+;; - It is not seen as a tree: there are only submatch numbers
+;;   You can still write a wrapper I guess.
+;;   e.g. Every nonterminal symbol uses its childern's number of submatches to
+;;   calculate their offsets
+;; - It's not easy to express some cases: e.g. Java Identifier which has to be not a ReservedKeyword
+;;   however it's easy for a general purpose language
+;; (define white-space* (make-regexp " +"))
+;; (define token* ())
+;; (define identifier* )
+;; (define java-letter (make-regexp "[A-Za-z$_]"))
+;; (define java-letter-or-digit (make-regexp "[A-Za-z$_0-9]"))
+;; (define identifier-chars ())
+;; TODO let's try the parser method. (although this can actually be done in regexp, but for clean code)
+
+
 ;; (map (lambda (p) (debug p)) (patterns))
 ;; (define closure-ftw-proc-for-all-subdirs
 ;;   (lambda (action)
@@ -129,34 +179,92 @@
   (debug (string-append "!!!!!" path))
   )
 (define (down-dummy path stat result) #t)
-(define (down-for-certain-packages path stat result)
-  ;; (debug (string-append "down " path "\n"))
-  (if (not (orlist (map (lambda (pattern)
-			  (string-match pattern (canonicalize-path path)))
-			(patterns))))
-      (begin
-	(debug (string-append "DOWN " path))
-	;; (file-system-fold
-	;;  enter?-false
-	;;  leaf-modify-package-decls
-	;;  down-dummy
-	;;  up-dummy
-	;;  skip-dummy
-	;;  error-dummy
-	;;  init
-	;;  path)
-	;;  This does not work because the base dir is also applied enter?-false
-	(map
-	 (lambda (name)
-	   (modify-package-decls-of-file (string-append path "/" name)))
-	 (scandir path
-		  (lambda (name) (string-match "^[^-].*\\.java$" name)))))))
+(define (down-for-certain-packages scanproc)
+  (lambda (path stat result)
+    ;; (debug (string-append "down " path "\n"))
+    (if (not (orlist (map (lambda (pattern)
+			    (string-match pattern (canonicalize-path path)))
+			  (patterns))))
+	(begin
+	  (debug (string-append "DOWN " path))
+	  ;; (file-system-fold
+	  ;;  enter?-false
+	  ;;  leaf-modify-package-decls
+	  ;;  down-dummy
+	  ;;  up-dummy
+	  ;;  skip-dummy
+	  ;;  error-dummy
+	  ;;  init
+	  ;;  path)
+	  ;;  This does not work because the base dir is also applied enter?-false
+	  (map
+	   (lambda (name)
+	     (scanproc (string-append path "/" name)))
+	   (scandir path
+		    (lambda (name) (string-match "^[^-].*\\.java$" name))))))))
 (define (up-dummy path stat result) #t)
 (define (skip-dummy path stat result) #t)
 (define (error-dummy path stat errno result)
   (error (strerror errno)))
 (define init 0)
 ;; (error #f "bp")
+
+;; (map (lambda (subdir)
+;;        (let ((dirpath (string-append
+;; 		       openjdk-srcdir
+;; 		       file-name-separator-string
+;; 		       subdir)))
+;; 	 (file-system-fold
+;; 	  enter?-dummy
+;; 	  leaf-dummy
+;; 	  (down-for-certain-packages modify-package-decls-of-file)
+;; 	  up-dummy
+;; 	  skip-dummy
+;; 	  error-dummy
+;; 	  init
+;; 	  dirpath)))
+;;      (scandir openjdk-srcdir (lambda (name)
+;; 			       ;; (debug name)
+;; 			       (not (or (equal? (basename name) ".")
+;; 					(equal? (basename name) ".."))))))
+
+(define (remove-spaces string)
+  (regexp-substitute/global #f " " string 'pre 'post))
+
+(define (all-non-api-packages-regex)
+  (error #f "TODO"))
+
+(define (find-unqualified-names file)
+  (map
+   (lambda (line)
+     (let ((match-struct
+	    (string-match
+	     (string-append
+	      "([[:lower:]][[:alnum:]_\\$]*(\\.[[:lower:]][[:alnum:]_\\$]*)*)\\."
+	      "([[:upper:]][[:alnum:]_\\$]*\\.)+"
+	      "([[:alpha:]][[:alnum:]_\\$]*\\.)*"
+	      "([[:alpha:]][[:alnum:]_\\$]*|\\*) ?$")
+	     line)))
+       ;; (display "shit")
+       (if match-struct
+	   (let ((match-string-space-removed
+		  (remove-spaces
+		   ;; (debug match-struct)
+		   (match:substring match-struct 0))))
+	     (if (and (not (member
+			    match-string-space-removed
+			    packages-dotted))
+		      (orlist
+		       (map (lambda (x) (string-match
+					 x
+					 (match-string-space-removed)))
+			    (all-non-api-packages-regex)))
+		      (not (string-match "^com\\.deltazx\\.wrapper"
+					 match-string-space-removed))
+		      (string-match "^(java)|jdk" match-string-space-removed))
+		 (debug (string-append file " line: " (match:substring match-struct 0))))))))
+   (file-get-lines file)))
+
 (map (lambda (subdir)
        (let ((dirpath (string-append
 		       openjdk-srcdir
@@ -165,7 +273,7 @@
 	 (file-system-fold
 	  enter?-dummy
 	  leaf-dummy
-	  down-for-certain-packages
+	  (down-for-certain-packages find-unqualified-names)
 	  up-dummy
 	  skip-dummy
 	  error-dummy
@@ -175,6 +283,8 @@
 			       ;; (debug name)
 			       (not (or (equal? (basename name) ".")
 					(equal? (basename name) ".."))))))
+
+  
 ;; (ftw openjdk-srcdir
 ;;      (lambda ()
 ;;        (scandir openjdk-srcdir)))

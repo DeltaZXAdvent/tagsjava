@@ -11,3 +11,8 @@ But somewhat because I want an efficient one and a possibly real-time one so I t
 
 After hacking javac, I need to hack the emacs symbol finding system. 
 Because it obviously lacks some contextual functionalities.
+
+And most of the code you see in the repo is experimental and obsolete.
+
+And this project is mainly a tool for the grand-minecraft project. 
+Because I want to write Java with "Free Software".
