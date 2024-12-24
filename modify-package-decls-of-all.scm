@@ -12,6 +12,13 @@
 	     ((rnrs base) :version (6)))
 
 (define (debug str) (display (string-append str "\n")))
+(define (linebreaker) (error #f "linebreak"))
+(define-syntax var-dump
+  (syntax-rules ()
+    ((var-dump x) (begin (display (quote x))
+			 (display x)
+			 (display "\n")))))
+;; (linebreaker)
 (define (orlist lst)
   (fold (lambda (b1 b2) (or b1 b2)) #f lst))
 (define openjdk-srcdir "openjdk21-src")
@@ -23,6 +30,11 @@
 	      (lambda (port) (get-line port))
 	      (lambda (x) x)
 	      port))))
+(define (port-get-lines port)
+  (unfold (lambda (port) (eof-object? (lookahead-char port)))
+	  (lambda (port) (get-line port))
+	  (lambda (x) x)
+	  port))
 (define (file-put-lines file lst)
   (call-with-output-file file
     (lambda (port)
@@ -34,6 +46,12 @@
 	      "api-packages-paths-for-scheme.list")))
     (assert (not (member "" lst)))
     lst))
+(define all-packages
+  (let ((lst (file-get-lines
+	      "all-packages.list")))
+    (assert (not (member "" lst)))
+    lst))
+;; (var-dump all-packages)
 (define packages-dotted
   (let ((remove-module-in-path
 	 (lambda (str)
@@ -48,9 +66,11 @@
        (lambda (x) (replace-dot-with-slash
 		    (remove-module-in-path x)))
        packages)))
-(display packages-dotted)
-;; (error #f "bp" packages-dotted)
-;; (debug (error "breakpoint"))
+;; (var-dump packages-dotted)
+(define all-non-api-packages
+  (filter (lambda (x) (not (member x packages-dotted))) all-packages))
+;; (var-dump all-non-api-packages)
+;; (linebreaker)
 (define (patterns)
   (map 
    (lambda (package)
@@ -111,29 +131,29 @@
 							    ";"
 							    'post)
 					 (match:substring match-struct 0))))
-			       ((string-match
-				 (string-append "([[:lower:]][[:alnum:]_\\$]*(\\.[[:lower:]][[:alnum:]_\\$]*)*)\\."
-						"([[:upper:]][[:alnum:]_\\$]*\\.)*"
-						"([[:alpha:]][[:alnum:]_\\$]*\\.)*"
-						"([[:alpha:]][[:alnum:]_\\$]*|\\*) ?$") line)
-				=> (lambda (match-struct)
-				     (debug "Probable BUG!")
-				     (debug (string-append file " line: " line))
-				     (if (and (not (member
-						    ((lambda (x)
-						       (regexp-substitute/global #f " " x 'pre 'post))
-						     (match:substring match-struct 1))
-						    packages-dotted))
-					      (not (string-match "^com.deltazx.wrapper"
-								 (match:substring match-struct 1))))
-					 (regexp-substitute #f match-struct
-							    'pre
-							    "package "
-							    wrapper-package-path
-							    1
-							    ";"
-							    'post)
-					 (match:substring match-struct 0))))
+			       ;; ((string-match
+			       ;; 	 (string-append "([[:lower:]][[:alnum:]_\\$]*(\\.[[:lower:]][[:alnum:]_\\$]*)*)\\."
+			       ;; 			"([[:upper:]][[:alnum:]_\\$]*\\.)*"
+			       ;; 			"([[:alpha:]][[:alnum:]_\\$]*\\.)*"
+			       ;; 			"([[:alpha:]][[:alnum:]_\\$]*|\\*) ?$") line)
+			       ;; 	=> (lambda (match-struct)
+			       ;; 	     (debug "Probable BUG!")
+			       ;; 	     (debug (string-append file " line: " line))
+			       ;; 	     (if (and (not (member
+			       ;; 			    ((lambda (x)
+			       ;; 			       (regexp-substitute/global #f " " x 'pre 'post))
+			       ;; 			     (match:substring match-struct 1))
+			       ;; 			    packages-dotted))
+			       ;; 		      (not (string-match "^com.deltazx.wrapper"
+			       ;; 					 (match:substring match-struct 1))))
+			       ;; 		 (regexp-substitute #f match-struct
+			       ;; 				    'pre
+			       ;; 				    "package "
+			       ;; 				    wrapper-package-path
+			       ;; 				    1
+			       ;; 				    ";"
+			       ;; 				    'post)
+			       ;; 		 (match:substring match-struct 0))))
 			       (#t line)))
 		       (file-get-lines file))))
 ;; (define (file-translate-lines file proc-string-to-string)
@@ -227,64 +247,147 @@
 ;; 			       ;; (debug name)
 ;; 			       (not (or (equal? (basename name) ".")
 ;; 					(equal? (basename name) ".."))))))
+;; (linebreaker)
 
 (define (remove-spaces string)
   (regexp-substitute/global #f " " string 'pre 'post))
 
-(define (all-non-api-packages-regex)
-  (error #f "TODO"))
+(define all-non-api-packages-regex
+  (let ((ret (let ((replace-dot-with-slashdot
+		    (lambda (str)
+		      (string-append 
+				     (regexp-substitute/global #f "\\." str 'pre "\\." 'post)))))
+	       (map
+		(lambda (x) (replace-dot-with-slashdot x))
+		all-non-api-packages))))
+    ret))
 
-(define (find-unqualified-names file)
-  (map
-   (lambda (line)
-     (let ((match-struct
-	    (string-match
-	     (string-append
-	      "([[:lower:]][[:alnum:]_\\$]*(\\.[[:lower:]][[:alnum:]_\\$]*)*)\\."
-	      "([[:upper:]][[:alnum:]_\\$]*\\.)+"
-	      "([[:alpha:]][[:alnum:]_\\$]*\\.)*"
-	      "([[:alpha:]][[:alnum:]_\\$]*|\\*) ?$")
-	     line)))
-       ;; (display "shit")
-       (if match-struct
-	   (let ((match-string-space-removed
-		  (remove-spaces
-		   ;; (debug match-struct)
-		   (match:substring match-struct 0))))
-	     (if (and (not (member
-			    match-string-space-removed
-			    packages-dotted))
-		      (orlist
-		       (map (lambda (x) (string-match
-					 x
-					 (match-string-space-removed)))
-			    (all-non-api-packages-regex)))
-		      (not (string-match "^com\\.deltazx\\.wrapper"
-					 match-string-space-removed))
-		      (string-match "^(java)|jdk" match-string-space-removed))
-		 (debug (string-append file " line: " (match:substring match-struct 0))))))))
-   (file-get-lines file)))
+;; (var-dump all-non-api-packages-regex)
+(define all-non-api-packages-regex
+  (fold (lambda (str compiled)
+		       (string-append compiled "|" str))
+		     (car all-non-api-packages-regex)
+		     (cdr all-non-api-packages-regex)))
+;; (var-dump all-non-api-packages-regex)
+(define all-non-api-packages-started-regex
+  (string-append "( |<|\\()(" all-non-api-packages-regex ")"
+		 "(\\.[[:upper:]][[:alnum:]_\\$]*)+"
+		 "(\\.[[:alpha:]][[:alnum:]_\\$]*\\.)*"))
+;; (var-dump all-non-api-packages-started-regex)
+(define all-non-api-packages-started-regex-compiled
+  (make-regexp all-non-api-packages-started-regex))
+(assert (regexp-exec all-non-api-packages-started-regex-compiled " sun.util.spi.Shit"))
+;; (linebreaker)
 
-(map (lambda (subdir)
-       (let ((dirpath (string-append
-		       openjdk-srcdir
-		       file-name-separator-string
-		       subdir)))
-	 (file-system-fold
-	  enter?-dummy
-	  leaf-dummy
-	  (down-for-certain-packages find-unqualified-names)
-	  up-dummy
-	  skip-dummy
-	  error-dummy
-	  init
-	  dirpath)))
-     (scandir openjdk-srcdir (lambda (name)
-			       ;; (debug name)
-			       (not (or (equal? (basename name) ".")
-					(equal? (basename name) ".."))))))
+(define (replace-unqualified-names file)
+  (let* ((need-change #f)
+	(lst
+	 (call-with-input-file file
+	   (lambda (port)
+	     (map-lines-excluding-comments
+	      port
+	      (lambda (line)
+		(let ((match-struct
+		       (regexp-exec
+			all-non-api-packages-started-regex-compiled
+			line)))
+		  (if match-struct
+		      (let ((match-string-space-removed
+			     (remove-spaces
+			      ;; (debug match-struct)
+			      (match:substring match-struct 0))))
+			(set! need-change #t)
+			(if (and (not (string-match "^ com\\.deltazx\\.wrapper"
+						    match-string-space-removed)))
+			    ;; (debug (string-append file " line: " line match-string-space-removed))
+			    (let ((replacement 
+				   (string-append (match:prefix match-struct)
+						  (substring (match:substring match-struct 0) 0 1)
+						  "com.deltazx.wrapper."
+						  (substring (match:substring match-struct 0) 1)
+						  (match:suffix match-struct))))
+			      (begin (debug (string-append file " replacement: " replacement))
+				     replacement))
+			    line))
+		      line))))))))
+    (if need-change (file-put-lines file lst))))
 
-  
+;; possible methods:
+;; let variable bindings key
+;;
+;; to tackle with this kind of complicated problem
+;; procedural style has to be used?
+;;
+;; Idk whether ~define~ in ~let loop~ is good or not
+(define (map-lines-excluding-comments port proc)
+  (let ((in-comment #f))
+    (fold (lambda (line lines)
+	    (let loop ((result lines) (start 0) (match #f) (append-once #f))
+	      (define (do-if-in-comment)
+		(set! match
+		      (string-match "\\*/" line start))
+		(if match
+		    (begin
+		      (set! in-comment #f)
+		      (set! start (match:end match 0))
+		      (loop result start match append-once))
+		    (begin
+		      (if (not append-once)
+			  (set! result (append lines (list line))))
+		      result)))
+	      (if in-comment
+		  (do-if-in-comment)
+		  (begin
+		    (if (not append-once)
+			(begin
+			  (set! append-once #t)
+			  (set! result (append lines (list (proc line))))))
+		    (set! match
+			  (string-match "^([^\"]*(\"\"|\"[^\"]*[^\\\"]\"))*(/\\*|[^\"]*[^/]/\\*)" line start))
+		    (if match
+			(begin 
+			  (set! in-comment #t)
+			  (set! start (match:end match 0))
+			  (do-if-in-comment))
+			result)))))
+	  '()
+	  (port-get-lines port))))
+
+(define (default-task)
+  (map (lambda (subdir)
+	 (let ((dirpath (string-append
+			 openjdk-srcdir
+			 file-name-separator-string
+			 subdir)))
+	   (file-system-fold
+	    enter?-dummy
+	    leaf-dummy
+	    (down-for-certain-packages replace-unqualified-names)
+	    up-dummy
+	    skip-dummy
+	    error-dummy
+	    init
+	    dirpath)))
+       (scandir openjdk-srcdir (lambda (name)
+				 ;; (debug name)
+				 (not (or (equal? (basename name) ".")
+					  (equal? (basename name) "..")))))))
+
+(define argv (command-line))
+(assert (not (null? (cdr argv))))
+(let ((command (cadr argv)))
+  (cond ((equal? command "replace")
+	 (display "replace-unqualified-names\n")
+	 (assert (not (null? (cddr argv))))
+	 (let ((file (caddr argv)))
+	   (assert (access? file (logior R_OK W_OK)))
+	   (replace-unqualified-names file)))
+	((equal? command "default") (default-task))
+	((equal? command "packages")
+	 (var-dump packages)
+	 (var-dump all-non-api-packages))
+	(else (error #f command))))
+
 ;; (ftw openjdk-srcdir
 ;;      (lambda ()
 ;;        (scandir openjdk-srcdir)))

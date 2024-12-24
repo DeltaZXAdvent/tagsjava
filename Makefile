@@ -54,8 +54,6 @@ delete-api-packges-once:
 	rm -IR `cat api-packages.list | grep -F -v -f non-api-packages.list api-packages.list`
 delete-api-classes:
 	echo TODO
-all-non-api-packages.list:
-	echo TODO
 # Maybe jdeps is enough (no?)
 non-api-packages.list: api-packages.list
 	cat classes.list | awk '								\
@@ -70,6 +68,13 @@ BEGIN { FS = "/"; RS = "-C " }									\
 '												\
 	| sort -u										\
 	| grep --fixed-strings --line-regexp --file=api-packages.list > non-api-packages.list
+all-packages.list: all-module-packages.list
+	cat all-module-packages.list | awk	\
+'						\
+{ print $$2 }					\
+'						\
+	| sort -u				\
+	> all-packages.list
 classes.list: classfiles.list		#printf "%s", ... could be replaced by print and ORS
 	cat classfiles.list \
 	|awk						\
@@ -91,6 +96,11 @@ api-packages-dotted.list:
 	for (String pn: module.getPackages ())							\
 	if (module.isExported (pn)) System.out.println (module.getName () + \" \" + pn);"	\
 	| jshell --feedback silent > api-packages-dotted.list
+all-module-packages.list:
+	echo "for (Module module: ModuleLayer.boot ().modules ())				\
+	for (String pn: module.getPackages ())							\
+	System.out.println (module.getName () + \" \" + pn);"	\
+	| jshell --feedback silent > all-module-packages.list
 api-packages-paths-for-scheme.list: api-packages-dotted.list
 	cat api-packages-dotted.list \
 	| awk '{ print $$1 "/" gensub (/\./, "/", "g", $$2) }' > api-packages-paths-for-scheme.list
@@ -100,7 +110,7 @@ api-packages.list: api-packages-dotted.list
 compile-verbose: Main.java
 	javac -verbose -Xprefer:source --class-path `ls -d openjdk21-src/*/ | awk 'BEGIN { ORS = ":" } { print $$0 } END { printf "%s", "." }'` Main.java
 compile: Main.java
-	javac -Xprefer:source --source-path `ls -d openjdk21-src/*/ | awk 'BEGIN { ORS = ":" } { print $$0 } END { printf "%s", "." }'` Main.java
+	javac -Xmaxerrs --enable-preview --release 21 -Xprefer:source --source-path `ls -d openjdk21-src/*/ | awk 'BEGIN { ORS = ":" } { print $$0 } END { printf "%s", "." }'` Main.java
 generate-openjdk-src:
 	if [ -d openjdk21-src ]; then\
 		gio trash openjdk21-src || exit;\

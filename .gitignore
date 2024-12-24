@@ -2,6 +2,9 @@ packages.list
 api-packages-dotted.list
 api-packages.list
 api-packages-paths-for-scheme.list
+all-module-packages.list
+all-packages.list
+hello.c
 non-api-packages.list
 classes.list
 classfiles.list
