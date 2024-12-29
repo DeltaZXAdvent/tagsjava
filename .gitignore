@@ -12,3 +12,4 @@ JavacParser.java
 Main.class
 openjdk21-src
 tagsjava.jar
+sealed-classes.txt

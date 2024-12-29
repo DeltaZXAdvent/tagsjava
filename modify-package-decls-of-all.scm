@@ -16,8 +16,8 @@
 (define-syntax var-dump
   (syntax-rules ()
     ((var-dump x) (begin (display (quote x))
-			 (display x)
-			 (display "\n")))))
+			 (display ": ")
+			 (display x)))))
 ;; (linebreaker)
 (define (orlist lst)
   (fold (lambda (b1 b2) (or b1 b2)) #f lst))
@@ -206,7 +206,7 @@
 			    (string-match pattern (canonicalize-path path)))
 			  (patterns))))
 	(begin
-	  (debug (string-append "DOWN " path))
+	  (display (string-append "down " path "\n") (current-error-port))
 	  ;; (file-system-fold
 	  ;;  enter?-false
 	  ;;  leaf-modify-package-decls
@@ -353,7 +353,7 @@
 	  '()
 	  (port-get-lines port))))
 
-(define (default-task)
+(define (default-task proc)
   (map (lambda (subdir)
 	 (let ((dirpath (string-append
 			 openjdk-srcdir
@@ -362,7 +362,7 @@
 	   (file-system-fold
 	    enter?-dummy
 	    leaf-dummy
-	    (down-for-certain-packages replace-unqualified-names)
+	    (down-for-certain-packages proc)
 	    up-dummy
 	    skip-dummy
 	    error-dummy
@@ -373,19 +373,80 @@
 				 (not (or (equal? (basename name) ".")
 					  (equal? (basename name) "..")))))))
 
+(define (find-sealed-class file)
+  (call-with-input-file file
+    (lambda (port)
+      (call/cc
+       (lambda (return)
+	 (map-lines-excluding-comments
+	  port
+	  (lambda (line)
+	    (let ((match
+		      (string-match "public.*sealed.*(class|interface)" line)))
+	      (if match
+	       (begin
+		 (var-dump file)
+		 (display " . ")
+		 (var-dump line)
+		 (newline)
+		 (return 0)))))))))))
+
+;; TODO add ~non-sealed~, ~sealed~ w/o ~permits~ elimination
+(define (revise-sealed-class file)
+  (let ((match
+	    (call-with-input-file file
+	      (lambda (port)
+		(string-match "(public[^\n]*[^-])sealed ([^\n]*(class|interface)[^{]*)permits [^{]*\\{"
+			      (get-string-all port))))))
+    (if (not match)
+	(display (string-append "unsealing failed for file: "
+				file
+				"\n"))
+	(call-with-output-file file
+	  (lambda (port)
+	    (put-string port
+			(regexp-substitute #f
+					   match
+					   'pre 1 2 "{" 'post))
+	    (display (string-append "successfully unsealed file: "
+				    file
+				    "\n")))))))
+
 (define argv (command-line))
 (assert (not (null? (cdr argv))))
 (let ((command (cadr argv)))
+  (define (first-arg)
+    (assert (not (null? (cddr argv))))
+    (caddr argv))
+  (define (arg-list)
+    (cddr argv))
   (cond ((equal? command "replace")
 	 (display "replace-unqualified-names\n")
 	 (assert (not (null? (cddr argv))))
 	 (let ((file (caddr argv)))
 	   (assert (access? file (logior R_OK W_OK)))
 	   (replace-unqualified-names file)))
-	((equal? command "default") (default-task))
+	((equal? command "replace-decls")
+	 (display "replace-decls-of-file\n")
+	 (assert (not (null? (cddr argv))))
+	 (let ((file (caddr argv)))
+	   (assert (access? file (logior R_OK W_OK)))
+	   (modify-package-decls-of-file file)))
+	((equal? command "find-sealed") (default-task find-sealed-class))
+	((equal? command "unseal")
+	 (let ((files (arg-list)))
+	   (map (lambda (file)
+		  (assert (access? file (logior R_OK W_OK)))
+		  (revise-sealed-class file))
+		files)))
+	((equal? command "default") (default-task replace-unqualified-names))
 	((equal? command "packages")
 	 (var-dump packages)
-	 (var-dump all-non-api-packages))
+	 (newline)
+	 (var-dump all-non-api-packages)
+	 (newline)
+	 (var-dump packages-dotted)
+	 (newline))
 	(else (error #f command))))
 
 ;; (ftw openjdk-srcdir

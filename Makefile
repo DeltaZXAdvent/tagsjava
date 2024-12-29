@@ -110,7 +110,7 @@ api-packages.list: api-packages-dotted.list
 compile-verbose: Main.java
 	javac -verbose -Xprefer:source --class-path `ls -d openjdk21-src/*/ | awk 'BEGIN { ORS = ":" } { print $$0 } END { printf "%s", "." }'` Main.java
 compile: Main.java
-	javac -Xmaxerrs --enable-preview --release 21 -Xprefer:source --source-path `ls -d openjdk21-src/*/ | awk 'BEGIN { ORS = ":" } { print $$0 } END { printf "%s", "." }'` Main.java
+	javac --enable-preview --release 21 -Xprefer:source --source-path `ls -d openjdk21-src/*/ | awk 'BEGIN { ORS = ":" } { print $$0 } END { printf "%s", "." }'` Main.java
 generate-openjdk-src:
 	if [ -d openjdk21-src ]; then\
 		gio trash openjdk21-src || exit;\
