@@ -30,3 +30,6 @@ Maybe Java's symbol finding shouldn't be based on text-searching rather than on 
 Not bad if you have a parser, regular expression will probably work also. But it is hard to use the private functionalities supposedly, especially for those already in the basic modules.
 
 # I give up using Emacs this time. It is also not necessary to do so.
+
+# <2025-01-07 Tue 22:53>
+Let's try to write a parser ourselves.
